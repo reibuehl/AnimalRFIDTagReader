@@ -1,33 +1,34 @@
-#include <Wire.h>                 //I2C support for the OLED display
-#include <SFE_MicroOLED.h>        //OLED display support
+#include <Wire.h>               // I2C support for the OLED display
+#include "SSD1306Wire.h"        // legacy: #include "SSD1306.h"
+#include "fonts.h"
 
-////////////////////////////
-// OLED Shield Definition //
-////////////////////////////
-#define OLED_RESET 255 //
-#define OLED_I2C 0     // I2C Addres: 0 - 0x3C, 1 - 0x3D
+// Define "DEBUG" for more debug output on serial connection
+#define DEBUG
+#ifdef DEBUG
+ #define DEBUG_PRINTLN(x)  Serial.println (x)
+ #define DEBUG_PRINT(x)  Serial.print (x)
+#else
+ #define DEBUG_PRINTLN(x)
+ #define DEBUG_PRINT(x)
+#endif
 
-////////////////////////////////////
-// OLED Shield Object Declaration //
-////////////////////////////////////
-// Declare a MicroOLED object. The parameters include:
-// 1 - Reset pin: Any digital pin
-// 2 - I2C Address: 0 - 0x3C, 1 - 0x3D
-MicroOLED oled(OLED_RESET, OLED_I2C); // I2C declaration
+// Pins for Red/Greed LED
+#define GREENPIN 2
+#define REDPIN 9
+
+// Initialize the OLED display using Arduino Wire:
+SSD1306Wire display(0x3c, SDA, SCL, GEOMETRY_64_48 );   // ADDRESS, SDA, SCL  -  SDA and SCL usually populate automatically based on your board's pins_arduino.h
 
 unsigned char message[35];
 unsigned long lastSignal = 0;
 bool transmission = false;
 byte state = 1;
 int pos;
-
-
-#define GREENPIN 10
-#define REDPIN 9
+unsigned long long testChip = 99200025140LL;
 
 struct countrycode_t {
    int numCode;
-   char* alpha3Code;
+   String alpha3Code;
 } countrycodes[] = { 4, "AFG", 8, "ALB", 10, "ATA", 12, "DZA", 16, "ASM", 20, "AND", 24, "AGO", 28, "ATG", 31, "AZE", 32, "ARG", 
                      36, "AUS", 40, "AUT", 44, "BHS", 48, "BHR", 50, "BGD", 51, "ARM", 52, "BRB", 56, "BEL", 60, "BMU", 64, "BTN", 
                      68, "BOL", 70, "BIH", 72, "BWA", 74, "BVT", 76, "BRA", 84, "BLZ", 86, "IOT", 90, "SLB", 92, "VGB", 96, "BRN", 
@@ -57,23 +58,28 @@ struct countrycode_t {
                      833, "IMN", 834, "TZA", 840, "USA", 850, "VIR", 854, "BFA", 858, "URY", 860, "UZB", 862, "VEN", 876, "WLF", 
                      882, "WSM", 887, "YEM", 894, "ZMB"};
 
-unsigned long long buddy = 0LL;
-unsigned long long buddyFake = 99200025140LL;
-
-
+String getCountryCode(int numCode) {
+  for (int i=0; i!=sizeof(countrycodes)/sizeof(countrycodes[0]); ++i) {
+    countrycode_t* c  = countrycodes+i;
+    if (c->numCode == numCode) {
+      return c->alpha3Code;
+    }
+  } 
+  return String(numCode);
+}
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   Serial2.begin(9600);
   pinMode(GREENPIN, OUTPUT);
-  digitalWrite(GREENPIN, HIGH);
+  digitalWrite(GREENPIN, LOW);
   pinMode(REDPIN, OUTPUT);
-  digitalWrite(REDPIN, HIGH);
-  Serial.println("Start");
+  digitalWrite(REDPIN, LOW);
   lastSignal = millis();
-  oled.begin();
-  oled.clear(ALL); // will clear out the OLED's graphic memory.
-  oled.clear(PAGE); // Clear the display's memory (gets rid of artifacts)
+  display.init();
+  display.clear();
+  display.flipScreenVertically();
+  DEBUG_PRINTLN("Start");
 }
 
 void loop() {
@@ -85,7 +91,7 @@ void loop() {
           lastSignal = millis();
           pos = 0;
           state = 2;
-          Serial.println("Changing from state 1 to 2");
+          DEBUG_PRINTLN("Changing from state 1 to 2");
         }
         break;
       }
@@ -96,20 +102,20 @@ void loop() {
           lastSignal = millis();
           message[pos] = Serial2.read();
                          sprintf(hexvalue, "%02X", message[pos]);
-                         Serial.print(hexvalue);
-                         Serial.print(",");
+                         DEBUG_PRINT(hexvalue);
+                         DEBUG_PRINT(",");
           pos++;
         }
         if (millis() - lastSignal > 100) {
           state = 3;
-          Serial.println("");
-          Serial.println("Changing from state 2 to 3");
+          DEBUG_PRINTLN("");
+          DEBUG_PRINTLN("Changing from state 2 to 3");
         }
         if (pos >= 35) {
           delay(300);
           state = 1;
-          Serial.println("");
-          Serial.println("Changing from state 2 to 1");
+          DEBUG_PRINTLN("");
+          DEBUG_PRINTLN("Changing from state 2 to 1");
         }
       }
       break;
@@ -121,7 +127,7 @@ void loop() {
           check = check ^ message[i];
         }
         if (check == message[11]) {
-          Serial.println("Check OK");
+          DEBUG_PRINTLN("Check OK");
 
           // Decode
           unsigned long long id = 0LL;
@@ -130,21 +136,13 @@ void loop() {
           }
           int countryNbr = (uint32_t) message[4] << 8;
           countryNbr |= (uint32_t) message[5]; 
-          char* countryCode;
-          sprintf (countryCode, "%03d", countryNbr);  
-          for (int i=0; i!=sizeof(countrycodes)/sizeof(countrycodes[0]); ++i) {
-            countrycode_t* c  = countrycodes+i;
-            if (c->numCode == countryNbr) {
-              countryCode = c->alpha3Code;
-            }
-          } 
+          String countryCode = getCountryCode(countryNbr);
           Serial.print("Country=");
-          Serial.println(countryCode); 
-          oled.clear(PAGE); // Clear the display's memory (gets rid of artifacts)
-          oled.setFontType(1);
-          oled.setCursor(0, 0);
-          oled.print(countryCode);
-          
+          Serial.println(countryCode);
+          display.clear();
+          display.setFont(Dialog_Plain_12);
+          display.drawString(0, 2, countryCode + " " + countryNbr);
+          // Serial.println(display.getStringWidth(countryCode + " " + countryNbr));
           char highBuf[10];
           char lowBuf[10];
           sprintf(highBuf, "%06ld", id/1000000L);
@@ -153,42 +151,44 @@ void loop() {
           Serial.print(countryNbr);
           Serial.print(highBuf);
           Serial.println(lowBuf);
-          oled.print(" ");
-          oled.print(countryNbr);
-          oled.print(highBuf);
-          oled.print(" ");
-          oled.println(lowBuf);
-          
-          oled.display();
+          display.drawString(0, 16, highBuf);
+          display.drawString(0, 30, lowBuf);
+          display.display();
 
-          if (id == buddy || id == buddyFake) {
-            digitalWrite(GREENPIN, LOW);
-            digitalWrite(REDPIN, HIGH);
-            Serial.println("It is Buddy!");
-          } else {
+          if (id == testChip) {
             digitalWrite(GREENPIN, HIGH);
             digitalWrite(REDPIN, LOW);
-            Serial.println("It is not Buddy!");
+            DEBUG_PRINTLN("It is Buddy!");
+          } else {
+            digitalWrite(GREENPIN, LOW);
+            digitalWrite(REDPIN, HIGH);
+            DEBUG_PRINTLN("It is not Buddy!");
           }
           state = 4;
-          Serial.println("Changing from state 3 to 4");
+          DEBUG_PRINTLN("Changing from state 3 to 4");
         } else {
-          Serial.println("Check FAILED");
-          Serial.print("Calculated Checksum: ");
-          Serial.println(check, HEX);
-          Serial.print("Expected Checksum: ");
-          Serial.println(message[11], HEX);
+          Serial.println("Read Error");
+          #ifdef DEBUG
+            Serial.println("Check FAILED");
+            Serial.print("Calculated Checksum: ");
+            Serial.println(check, HEX);
+            Serial.print("Expected Checksum: ");
+            Serial.println(message[11], HEX);
+          #endif
+          display.clear();
+          display.setFont(Dialog_Plain_12);
+          display.drawString(0, 2, "Read Error");
+          state = 1;
+          DEBUG_PRINTLN("Changing from state 3 to 1");
         }
-        state = 1;
-        Serial.println("Changing from state 3 to 1");
         break;
       }
     case 4: {
         delay(2000);
-        digitalWrite(GREENPIN, HIGH);
-        digitalWrite(REDPIN, HIGH);
+        digitalWrite(GREENPIN, LOW);
+        digitalWrite(REDPIN, LOW);
         state = 1;
-        Serial.println("Changing from state 4 to 1");
+        DEBUG_PRINTLN("Changing from state 4 to 1");
         break;
       }
   } //switch
